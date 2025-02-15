@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 tokio = { version = "1.43.0", features = ["full"] }
 tosic-utils = { version = "0.2.4", features = ["env", "tracing", "dotenv"], registry = "gitea" }
+thiserror = { version = "2.0.11"}
