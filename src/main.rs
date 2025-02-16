@@ -1,5 +1,24 @@
 use tokio::net::TcpListener;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader, BufWriter};
+
+pub struct Connection<R, W>
+where
+    R: AsyncReadExt + Unpin,
+    W: AsyncWriteExt + Unpin,
+{
+    reader: BufReader<R>,
+    writer: BufWriter<W>,
+}
+
+impl<R, W> Connection<R, W>
+where
+    R: AsyncReadExt + Unpin,
+    W: AsyncWriteExt + Unpin,
+{
+    pub fn new(reader: R, writer: W) -> Self {
+        Self { reader, writer }
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
