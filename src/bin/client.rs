@@ -1,16 +1,16 @@
 use std::time::Duration;
-use tokio::net::TcpStream;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::net::TcpStream;
 use tokio::select;
-use tokio::sync::mpsc;
 use tokio::signal;
+use tokio::sync::mpsc;
 
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut stream = TcpStream::connect("127.0.0.1:12100").await?;
     println!("Connected to server!");
 
     let (tx, mut rx) = mpsc::channel::<String>(32);
-    
+
     tokio::spawn(async move {
         let mut reader = BufReader::new(tokio::io::stdin());
         let mut line = String::new();
@@ -23,7 +23,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 println!("EOF reached on stdin, closing input.");
                 break;
             }
-            
+
             if line.ends_with('\n') {
                 line.pop();
                 if line.ends_with('\r') {
@@ -38,7 +38,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         println!("Stdin reader task finished.");
     });
-    
+
     loop {
         select! {
             maybe_line = rx.recv() => {
@@ -56,7 +56,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
             }
-            
+
             _ = signal::ctrl_c() => {
                 println!("Received Ctrl+C, shutting down...");
                 break;
