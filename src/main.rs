@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+#![allow(unused_variables)]
+
 use std::sync::Arc;
 
 use std::collections::HashMap;
@@ -44,17 +47,17 @@ impl Server {
             while let Some(message) = broadcast_rx.recv().await {
                 match message {
                     Message::Chat { id, data } => {
-                        let connectionsLock = connections.lock().await;
-                        for (clientId, sender) in connectionsLock.iter() {
+                        let connections_lock = connections.lock().await;
+                        for (client_id, sender) in connections_lock.iter() {
                             if let Err(errno) = sender.send(data.clone()).await {
                                 eprintln!("[-] Failed to send message; Error = {:?} . . .", errno);
                             }
                         }
                     }
                     Message::Disconnect(id) => {
-                        let mut connectionsLock = connections.lock().await;
-                        connectionsLock.remove(&id);
-                        for (clientId, sender) in connectionsLock.iter() {
+                        let mut connections_lock = connections.lock().await;
+                        connections_lock.remove(&id);
+                        for (client_id, sender) in connections_lock.iter() {
                             if let Err(errno) = sender
                                 .send(format!("[/] {id} disconnected . . .").into_bytes())
                                 .await
@@ -68,12 +71,12 @@ impl Server {
         });
 
         while let Ok((socket, addr)) = self.listener.accept().await {
-            let mut connectionsLock = self.connections.lock().await;
-            let client_id = connectionsLock.len() + 1;
+            let mut connections_lock = self.connections.lock().await;
+            let client_id = connections_lock.len() + 1;
             println!("[+] New client {} connected from {}", client_id, addr);
 
             let (client_tx, client_rx) = mpsc::channel(100);
-            connectionsLock.insert(client_id, client_tx);
+            connections_lock.insert(client_id, client_tx);
 
             let broadcast_tx = broadcast_tx.clone();
             let (reader, writer) = socket.into_split();
@@ -113,7 +116,7 @@ where
     R: AsyncReadExt + Unpin,
     W: AsyncWriteExt + Unpin,
 {
-    pub fn new(
+    fn new(
         client_id: usize,
         reader: R,
         writer: W,
@@ -173,7 +176,6 @@ where
                 }
             }
         }
-        Ok(())
     }
 }
 
