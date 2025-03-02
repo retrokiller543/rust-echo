@@ -49,6 +49,10 @@ impl Server {
                     Message::Chat { id, data } => {
                         let connections_lock = connections.lock().await;
                         for (client_id, sender) in connections_lock.iter() {
+                            if id == *client_id {
+                                continue;
+                            }
+                            
                             if let Err(errno) = sender.send(data.clone()).await {
                                 eprintln!("[-] Failed to send message; Error = {:?} . . .", errno);
                             }
@@ -58,6 +62,10 @@ impl Server {
                         let mut connections_lock = connections.lock().await;
                         connections_lock.remove(&id);
                         for (client_id, sender) in connections_lock.iter() {
+                            if id == *client_id {
+                                continue;
+                            }
+                            
                             if let Err(errno) = sender
                                 .send(format!("[/] {id} disconnected . . .").into_bytes())
                                 .await
