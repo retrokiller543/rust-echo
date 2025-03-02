@@ -5,7 +5,7 @@ use std::collections::VecDeque;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader, BufWriter};
 use tokio::net::TcpListener;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 
 type Result<T, E = Box<dyn std::error::Error>> = core::result::Result<T, E>;
 
@@ -55,7 +55,10 @@ impl Server {
                         let mut connectionsLock = connections.lock().await;
                         connectionsLock.remove(&id);
                         for (clientId, sender) in connectionsLock.iter() {
-                            if let Err(errno) = sender.send(format!("[/] {id} disconnected . . .").into_bytes()).await {
+                            if let Err(errno) = sender
+                                .send(format!("[/] {id} disconnected . . .").into_bytes())
+                                .await
+                            {
                                 eprintln!("[-] Failed to send message; Error = {:?} . . .", errno);
                             }
                         }
@@ -66,7 +69,7 @@ impl Server {
 
         while let Ok((socket, addr)) = self.listener.accept().await {
             let mut connectionsLock = self.connections.lock().await;
-            let client_id = connectionsLock.len()+1;
+            let client_id = connectionsLock.len() + 1;
             println!("[+] New client {} connected from {}", client_id, addr);
 
             let (client_tx, client_rx) = mpsc::channel(100);
@@ -75,13 +78,15 @@ impl Server {
             let broadcast_tx = broadcast_tx.clone();
             let (reader, writer) = socket.into_split();
 
-            let mut connection = Connection::new(client_id,
-                                                 reader, writer,
-                                                 broadcast_tx, client_rx);
+            let mut connection =
+                Connection::new(client_id, reader, writer, broadcast_tx, client_rx);
 
             tokio::spawn(async move {
                 if let Err(errno) = connection.run().await {
-                    eprintln!("[-] Connection error for client {}; Error = {:?} . . .", client_id, errno);
+                    eprintln!(
+                        "[-] Connection error for client {}; Error = {:?} . . .",
+                        client_id, errno
+                    );
                 }
             });
         }
@@ -108,35 +113,64 @@ where
     R: AsyncReadExt + Unpin,
     W: AsyncWriteExt + Unpin,
 {
-    pub fn new(client_id: usize,
-               reader: R, writer: W, 
-               sender: mpsc::Sender<Message>, receiver: mpsc::Receiver<Vec<u8>>) -> Self {
+    pub fn new(
+        client_id: usize,
+        reader: R,
+        writer: W,
+        sender: mpsc::Sender<Message>,
+        receiver: mpsc::Receiver<Vec<u8>>,
+    ) -> Self {
         let reader = BufReader::new(reader);
         let writer = BufWriter::new(writer);
 
-        Self { client_id, reader, writer, sender, receiver }
+        Self {
+            client_id,
+            reader,
+            writer,
+            sender,
+            receiver,
+        }
     }
 
     pub async fn run(&mut self) -> Result<()> {
-        let mut buffer = [0; 1024];
+        let mut buffer = [0u8; 1024];
+
+        let welcome = format!("[+] Welcome! You are client {}\n", self.client_id);
+        self.writer.write_all(welcome.as_bytes()).await?;
+        self.writer.flush().await?;
 
         loop {
-            let data = match self.reader.read(&mut buffer).await {
-                Ok(0) => return Ok(()),
-                Ok(data) => data,
-                Err(errno) => {
-                    eprintln!("[-] Failed to read from socket; Error = {:?} . . .", errno);
-                    return Err(Box::new(errno));
+            tokio::select! {
+                Some (message) = self.receiver.recv() => {
+                    self.writer.write_all(&message).await?;
+                    self.writer.write_all(b"\n").await?;
+                    self.writer.flush().await?;
                 }
-            };
 
-            eprintln!(
-                "[+] Data received {} . . .",
-                std::str::from_utf8(&buffer).unwrap()
-            );
+                result = self.reader.read(&mut buffer) => {
+                    match result {
+                        Ok(0) => {
+                            self.sender.send(Message::Disconnect(self.client_id)).await?;
+                            return Ok(());
+                        }
 
-            if let Err(errno) = self.writer.write_all(&buffer[0..data]).await {
-                eprintln!("[-] Failed to write to socket; Error = {:?} . . .", errno);
+                        Ok (nbytes) => {
+                            if let Ok(message) = String::from_utf8(buffer[..nbytes].to_vec()) {
+                                let message = message.trim().to_string();
+                                if !message.is_empty() {
+                                    self.sender.send(Message::Chat {
+                                        id: self.client_id,
+                                        data: message.into(),
+                                    }).await?;
+                                }
+                            }
+                        }
+                        Err (errno) => {
+                            eprintln!("[-] Error reading from client {}: {:?}", self.client_id, errno);
+                            return Err(errno.into());
+                        }
+                    }
+                }
             }
         }
         Ok(())
